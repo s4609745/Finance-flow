@@ -19,7 +19,26 @@ const userSchema = new mongoose.Schema({
   country: { type: String, default: 'US' }
 }, { timestamps: true });
 
+const categorySchema = new mongoose.Schema({
+  name: { type: String, required: true, trim: true, maxlength: 100 },
+  icon: { type: String, required: true },
+  color: { type: String, required: true },
+  type: { type: String, enum: ['income', 'expense'], required: true },
+  isActive: { type: Boolean, default: true }
+}, { timestamps: { createdAt: true, updatedAt: false } });
+
+const transactionSchema = new mongoose.Schema({
+  userId: { type: mongoose.Schema.Types.ObjectId, required: true, ref: 'User' },
+  categoryId: { type: mongoose.Schema.Types.ObjectId, required: true, ref: 'Category' },
+  amount: { type: Number, required: true, min: 0 },
+  description: { type: String, required: true, trim: true },
+  type: { type: String, enum: ['income', 'expense'], required: true },
+  date: { type: Date, required: true }
+}, { timestamps: true });
+
 const UserModel = mongoose.models.User || mongoose.model('User', userSchema);
+const CategoryModel = mongoose.models.Category || mongoose.model('Category', categorySchema);
+const TransactionModel = mongoose.models.Transaction || mongoose.model('Transaction', transactionSchema);
 
 let isConnected = false;
 
@@ -135,6 +154,97 @@ app.post('/api/login', async (req, res) => {
   } catch (error) {
     console.error('Login error:', error);
     res.status(500).json({ message: 'Login failed' });
+  }
+});
+
+// Auth middleware
+const authenticateToken = async (req: any, res: any, next: any) => {
+  const authHeader = req.headers['authorization'];
+  const token = authHeader && authHeader.split(' ')[1];
+
+  if (!token) {
+    return res.status(401).json({ message: 'Unauthorized' });
+  }
+
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET!) as any;
+    const user = await UserModel.findById(decoded.id);
+
+    if (!user || !user.isActive) {
+      return res.status(401).json({ message: 'Unauthorized' });
+    }
+
+    req.user = { id: user._id, email: user.email, role: user.role };
+    next();
+  } catch (error) {
+    return res.status(401).json({ message: 'Unauthorized' });
+  }
+};
+
+app.get('/api/categories', authenticateToken, async (req, res) => {
+  try {
+    await connectDB();
+    const { type } = req.query;
+    const query: any = { isActive: true };
+    if (type) query.type = type;
+    
+    const categories = await CategoryModel.find(query).sort({ name: 1 });
+    res.json(categories);
+  } catch (error) {
+    res.status(500).json({ message: 'Failed to fetch categories' });
+  }
+});
+
+app.get('/api/transactions', authenticateToken, async (req: any, res) => {
+  try {
+    await connectDB();
+    const { limit = '50', offset = '0' } = req.query;
+    const transactions = await TransactionModel.find({ userId: req.user.id })
+      .populate('categoryId')
+      .sort({ date: -1 })
+      .limit(parseInt(limit))
+      .skip(parseInt(offset));
+    res.json(transactions);
+  } catch (error) {
+    res.status(500).json({ message: 'Failed to fetch transactions' });
+  }
+});
+
+app.post('/api/transactions', authenticateToken, async (req: any, res) => {
+  try {
+    await connectDB();
+    const transaction = new TransactionModel({
+      ...req.body,
+      userId: req.user.id,
+      amount: parseFloat(req.body.amount),
+      date: new Date(req.body.date)
+    });
+    const saved = await transaction.save();
+    res.status(201).json(saved);
+  } catch (error) {
+    res.status(500).json({ message: 'Failed to create transaction' });
+  }
+});
+
+app.get('/api/analytics/stats', authenticateToken, async (req: any, res) => {
+  try {
+    await connectDB();
+    const stats = await TransactionModel.aggregate([
+      { $match: { userId: new mongoose.Types.ObjectId(req.user.id) } },
+      { $group: { _id: '$type', total: { $sum: '$amount' } } }
+    ]);
+    
+    const income = stats.find(s => s._id === 'income')?.total || 0;
+    const expenses = stats.find(s => s._id === 'expense')?.total || 0;
+    
+    res.json({
+      totalBalance: income - expenses,
+      monthlyIncome: income,
+      monthlyExpenses: expenses,
+      savingsRate: income > 0 ? Math.round(((income - expenses) / income) * 100) : 0
+    });
+  } catch (error) {
+    res.status(500).json({ message: 'Failed to fetch stats' });
   }
 });
 
