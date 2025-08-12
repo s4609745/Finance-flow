@@ -23,7 +23,9 @@ api.interceptors.request.use((config) => {
 api.interceptors.response.use(
   (response) => response,
   (error) => {
-    if (error.response?.status === 401) {
+    console.error('API Error:', error.response?.data || error.message);
+    if (error.response?.status === 401 && error.response?.data?.message !== 'Invalid credentials') {
+      console.log('Token expired or invalid, logging out');
       localStorage.removeItem('token');
       window.location.href = '/';
     }

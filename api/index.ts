@@ -53,6 +53,20 @@ const connectDB = async () => {
     dbName: process.env.MONGODB_DB_NAME || 'financeflow'
   });
   
+  // Seed categories if none exist
+  const categoryCount = await CategoryModel.countDocuments();
+  if (categoryCount === 0) {
+    const defaultCategories = [
+      { name: 'Salary', icon: '💰', color: '#10B981', type: 'income' },
+      { name: 'Freelance', icon: '💻', color: '#3B82F6', type: 'income' },
+      { name: 'Food & Dining', icon: '🍽️', color: '#EF4444', type: 'expense' },
+      { name: 'Transportation', icon: '🚗', color: '#F97316', type: 'expense' },
+      { name: 'Shopping', icon: '🛍️', color: '#EC4899', type: 'expense' },
+      { name: 'Bills & Utilities', icon: '⚡', color: '#EF4444', type: 'expense' }
+    ];
+    await CategoryModel.insertMany(defaultCategories);
+  }
+  
   isConnected = true;
 };
 
@@ -63,9 +77,10 @@ app.use((req, res, next) => {
   res.header('Access-Control-Allow-Origin', '*');
   res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
   res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+  res.header('Access-Control-Allow-Credentials', 'false');
   
   if (req.method === 'OPTIONS') {
-    return res.sendStatus(200);
+    return res.status(200).end();
   }
   next();
 });
@@ -159,25 +174,30 @@ app.post('/api/login', async (req, res) => {
 
 // Auth middleware
 const authenticateToken = async (req: any, res: any, next: any) => {
-  const authHeader = req.headers['authorization'];
-  const token = authHeader && authHeader.split(' ')[1];
-
-  if (!token) {
-    return res.status(401).json({ message: 'Unauthorized' });
-  }
-
   try {
+    await connectDB();
+    
+    const authHeader = req.headers['authorization'];
+    const token = authHeader && authHeader.split(' ')[1];
+
+    if (!token) {
+      console.log('No token provided');
+      return res.status(401).json({ message: 'No token provided' });
+    }
+
     const decoded = jwt.verify(token, process.env.JWT_SECRET!) as any;
     const user = await UserModel.findById(decoded.id);
 
     if (!user || !user.isActive) {
-      return res.status(401).json({ message: 'Unauthorized' });
+      console.log('User not found or inactive');
+      return res.status(401).json({ message: 'User not found' });
     }
 
     req.user = { id: user._id, email: user.email, role: user.role };
     next();
   } catch (error) {
-    return res.status(401).json({ message: 'Unauthorized' });
+    console.error('Auth error:', error);
+    return res.status(401).json({ message: 'Invalid token' });
   }
 };
 
@@ -189,7 +209,18 @@ app.get('/api/categories', authenticateToken, async (req, res) => {
     if (type) query.type = type;
     
     const categories = await CategoryModel.find(query).sort({ name: 1 });
-    res.json(categories);
+    
+    const formattedCategories = categories.map(c => ({
+      _id: c._id,
+      name: c.name || 'Unknown',
+      icon: c.icon || '📝',
+      color: c.color || '#6B7280',
+      type: c.type || 'expense',
+      isActive: c.isActive !== false,
+      createdAt: c.createdAt
+    }));
+    
+    res.json(formattedCategories);
   } catch (error) {
     res.status(500).json({ message: 'Failed to fetch categories' });
   }
@@ -204,7 +235,28 @@ app.get('/api/transactions', authenticateToken, async (req: any, res) => {
       .sort({ date: -1 })
       .limit(parseInt(limit))
       .skip(parseInt(offset));
-    res.json(transactions);
+    
+    const formattedTransactions = transactions.map(t => ({
+      _id: t._id,
+      userId: t.userId,
+      categoryId: t.categoryId?._id || t.categoryId,
+      amount: t.amount,
+      description: t.description,
+      type: t.type,
+      date: t.date,
+      createdAt: t.createdAt,
+      updatedAt: t.updatedAt,
+      category: t.categoryId ? {
+        _id: t.categoryId._id,
+        name: t.categoryId.name || 'Unknown',
+        icon: t.categoryId.icon || '📝',
+        color: t.categoryId.color || '#6B7280',
+        type: t.categoryId.type || t.type,
+        isActive: t.categoryId.isActive !== false
+      } : null
+    }));
+    
+    res.json(formattedTransactions);
   } catch (error) {
     res.status(500).json({ message: 'Failed to fetch transactions' });
   }
@@ -245,6 +297,85 @@ app.get('/api/analytics/stats', authenticateToken, async (req: any, res) => {
     });
   } catch (error) {
     res.status(500).json({ message: 'Failed to fetch stats' });
+  }
+});
+
+app.get('/api/analytics/recent-transactions', authenticateToken, async (req: any, res) => {
+  try {
+    await connectDB();
+    const transactions = await TransactionModel.find({ userId: req.user.id })
+      .populate('categoryId')
+      .sort({ date: -1 })
+      .limit(5);
+    
+    const formattedTransactions = transactions.map(t => ({
+      _id: t._id,
+      userId: t.userId,
+      categoryId: t.categoryId?._id || t.categoryId,
+      amount: t.amount,
+      description: t.description,
+      type: t.type,
+      date: t.date,
+      createdAt: t.createdAt,
+      updatedAt: t.updatedAt,
+      category: t.categoryId ? {
+        _id: t.categoryId._id,
+        name: t.categoryId.name || 'Unknown',
+        icon: t.categoryId.icon || '📝',
+        color: t.categoryId.color || '#6B7280',
+        type: t.categoryId.type || t.type,
+        isActive: t.categoryId.isActive !== false
+      } : null
+    }));
+    
+    res.json(formattedTransactions);
+  } catch (error) {
+    res.status(500).json({ message: 'Failed to fetch recent transactions' });
+  }
+});
+
+app.get('/api/analytics/category-expenses', authenticateToken, async (req: any, res) => {
+  try {
+    await connectDB();
+    const expenses = await TransactionModel.aggregate([
+      { $match: { userId: new mongoose.Types.ObjectId(req.user.id), type: 'expense' } },
+      { $group: { _id: '$categoryId', amount: { $sum: '$amount' } } },
+      { $lookup: { from: 'categories', localField: '_id', foreignField: '_id', as: 'category' } },
+      { $unwind: '$category' },
+      { $sort: { amount: -1 } }
+    ]);
+    
+    const total = expenses.reduce((sum, item) => sum + item.amount, 0);
+    const result = expenses.map(item => ({
+      category: item.category,
+      amount: item.amount,
+      percentage: total > 0 ? Math.round((item.amount / total) * 100) : 0
+    }));
+    
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({ message: 'Failed to fetch category expenses' });
+  }
+});
+
+app.get('/api/auth/user', authenticateToken, async (req: any, res) => {
+  try {
+    await connectDB();
+    const user = await UserModel.findById(req.user.id);
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+    res.json({
+      _id: user._id,
+      email: user.email,
+      firstName: user.firstName,
+      lastName: user.lastName,
+      role: user.role,
+      currency: user.currency,
+      country: user.country
+    });
+  } catch (error) {
+    res.status(500).json({ message: 'Failed to fetch user' });
   }
 });
 
