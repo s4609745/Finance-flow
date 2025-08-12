@@ -1,9 +1,9 @@
 import dotenv from 'dotenv';
 dotenv.config();
 import express, { type Request, Response, NextFunction } from "express";
-import { registerRoutes } from "./routes";
-import { setupVite, serveStatic, log } from "./vite";
-import { connectDB } from "./db";
+import { registerRoutes } from "./routes.js";
+// import { setupVite, serveStatic, log } from "./vite.js";
+import { connectDB } from "./db.js";
 
 const app = express();
 
@@ -48,7 +48,7 @@ app.use((req, res, next) => {
         logLine = logLine.slice(0, 79) + "…";
       }
 
-      log(logLine);
+      console.log(logLine);
     }
   });
 
@@ -67,7 +67,7 @@ app.use((req, res, next) => {
     const { seedCategories } = await import('./seedCategories');
     await seedCategories();
   } catch (error) {
-    console.log('Categories already seeded or error seeding:', error.message);
+    console.log('Categories already seeded or error seeding:', (error as Error).message);
   }
 
   await registerRoutes(app);
@@ -86,11 +86,7 @@ app.use((req, res, next) => {
   const { createServer } = await import('http');
   const server = createServer(app);
 
-  if (app.get("env") === "development") {
-    await setupVite(app, server);
-  } else {
-    serveStatic(app);
-  }
+  // Vite setup removed for serverless deployment
 
   const port = parseInt(process.env.PORT || '5000', 10);
   server.listen({
@@ -98,6 +94,6 @@ app.use((req, res, next) => {
     host: "0.0.0.0",
     reusePort: true,
   }, () => {
-    log(`serving on port ${port}`);
+    console.log(`serving on port ${port}`);
   });
 })();
