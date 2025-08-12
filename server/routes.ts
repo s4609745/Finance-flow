@@ -2,9 +2,9 @@ import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
 import jwt from "jsonwebtoken";
 import bcrypt from "bcryptjs";
-import { storage } from "./storage";
-import { sendWelcomeEmail } from "./utils/email";
-import { registerSchema, loginSchema, insertCategorySchema, insertTransactionSchema } from "@shared/schema";
+import { storage } from "./storage.js";
+import { sendWelcomeEmail } from "./utils/email.js";
+import { registerSchema, loginSchema, insertCategorySchema, insertTransactionSchema } from "../shared/schema.js";
 
 // JWT Authentication middleware
 declare global {
@@ -62,7 +62,7 @@ const requireAdmin = (req: AuthRequest, res: Response, next: NextFunction) => {
   next();
 };
 
-export async function registerRoutes(app: Express): Promise<Server> {
+export async function registerRoutes(app: Express): Promise<void> {
   // Auth routes
   app.post('/api/register', async (req, res) => {
     try {
@@ -512,6 +512,5 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  const httpServer = createServer(app);
-  return httpServer;
+  // Routes registered successfully
 }

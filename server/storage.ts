@@ -7,10 +7,10 @@ import {
   type InsertTransaction,
   type TransactionWithCategory,
   type UserStats,
-} from "@shared/schema";
-import { UserModel } from "./models/User";
-import { CategoryModel } from "./models/Category";
-import { TransactionModel } from "./models/Transaction";
+} from "../shared/schema.js";
+import { UserModel } from "./models/User.js";
+import { CategoryModel } from "./models/Category.js";
+import { TransactionModel } from "./models/Transaction.js";
 import bcrypt from "bcryptjs";
 import mongoose from "mongoose";
 
@@ -530,7 +530,7 @@ export class MongoStorage implements IStorage {
       date: transaction.date,
       createdAt: transaction.createdAt,
       updatedAt: transaction.updatedAt,
-      category: transaction.categoryId ? this.transformCategory(transaction.categoryId) : null,
+      category: transaction.categoryId ? this.transformCategory(transaction.categoryId) : undefined,
     };
   }
 }
